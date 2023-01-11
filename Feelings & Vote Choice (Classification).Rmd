@@ -1,0 +1,239 @@
+---
+title: "Feelings and Vote Choice"
+output: html_notebook
+---
+
+For this project I am interested in how much feelings towards the political 
+parties matter when it comes to presidential vote choice. I am interested in 
+comparing the impact of feelings to more traditional variables such as policy
+preferences. Taking data from the 2016 ANES I run several logistic regression 
+models in which I attempt to predict a respondents vote choice based on their
+1) feelings 2) policy preferences 3) and demographics. 
+
+```{r setup}
+rm(list = ls())
+setwd("C:/Users/cayde/OneDrive/Graduate Studies/Misc/TA/Lab 102/Data Sets")
+
+library(ggplot2)
+library(dplyr)
+library(e1071)
+
+anes <- read.csv("anes_timeseries_2016.csv") 
+
+```
+
+The data is from the American National Election Services, so it is already in a 
+clean format. First thing I do is inspect the data and see which columns have 
+the most missing data.
+
+```{r}
+#Inspecting the Data
+#####################
+
+head(anes)
+str(anes)
+
+sapply(anes, class) #look at the data types
+sort(sapply(anes, function(x){mean(is.na(x))*100})) #get a sense of which columns are missing data
+
+summary(anes$feeling_dem_party)
+summary(anes$feeling_rep_party)
+
+```
+
+Next I split the data into training and test sets. 
+
+```{r}
+
+#Splitting data
+###################
+
+set.seed(452)
+anes$assignment <- sample(c("training", "test"), nrow(anes), replace=TRUE, prob = c(0.7, 0.3))
+```
+
+Here I do some simple transformations on my Dependent Variable (2016 Vote choice).
+I drop third party candidates and rename the values to something more concise.
+
+```{r}
+#Data Transformation
+####################
+
+table(anes$vote_choice_president)
+anes_2party <- filter(anes, vote_choice_president == '1. Hillary Clinton' | vote_choice_president == '2. Donald Trump')
+anes_2party$vote_choice_president <- recode(anes_2party$vote_choice_president, "1. Hillary Clinton" = "Clinton", "2. Donald Trump" = "Trump")
+table(anes_2party$vote_choice_president)
+
+anes_2party$vote_choice_president <- as.factor(anes_2party$vote_choice_president)
+
+```
+
+Before estimating the models I am interested in how the data looks. I create a 
+simple bivariate scatterplot plotting the feelings for the different parties, and
+I color the dots by vote choice. 
+
+```{r}
+
+#Data Visualization 
+
+ggplot(data = anes_2party, mapping = aes(x = feeling_dem_party, y = feeling_rep_party)) +
+  geom_point(aes(color = vote_choice_president)) +
+  geom_smooth(method='lm') +
+  scale_color_manual(values = c("blue", "red", "gray", "gray")) +
+  xlab("Democratic Party") +
+  ylab("Republican Party") + 
+  ggtitle("Feeling Thermometer for Parties") + 
+  guides(color = guide_legend("Vote Choice")) 
+```
+
+For this project I am largely interested in how well the feelings for the parties
+predict vote choices, and how this compares to policies. Traditional understandings
+of democracy assume that citizens vote for the candidate that most closely 
+aligns with their policy preferences, and makes no mention of feelings. In this
+polarized environment I believe that feelings are very prominent in politics.
+
+For my first model, I estimate a logistic regression in which vote choice is the 
+DV and feelings towards the 2 political parties are the predicting variables. I 
+use the fitted model to make predictions on vote choice for the tested data. 
+
+```{r}
+################
+#Classification 
+################
+
+#Feelings
+#########
+
+
+DV <- "vote_choice_president"
+feeling_variables <- c("feeling_dem_party", "feeling_rep_party")
+
+#Subsetting the data by relevant variables and removing NA's
+anes_2party_feelings <- subset(anes_2party, select = c(DV, feeling_variables, "assignment"))
+anes_2party_feelings <- na.omit(anes_2party_feelings)
+
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_feelings_train <- filter(anes_2party_feelings, assignment == "training")
+anes_2party_feelings_train <- subset(anes_2party_feelings_train, select = c(DV, feeling_variables))
+
+anes_2party_feelings_test <- filter(anes_2party_feelings, assignment == "test")
+anes_2party_feelings_test <- subset(anes_2party_feelings_test, select = c(DV, feeling_variables))
+
+#Estimating a model on the training set  
+logit_feelings <- glm(vote_choice_president ~ ., 
+                      data = anes_2party_feelings_train,
+                      family = "binomial")
+
+predictions_feelings <- round(predict.glm(logit_feelings, newdata = anes_2party_feelings_test, type = "response"))
+predictions_feelings[predictions_feelings == 0] <- "Clinton"
+predictions_feelings[predictions_feelings == 1] <- "Trump"
+
+table(predictions_feelings, anes_2party_feelings_test$vote_choice_president)
+
+```
+
+Taking only feelings into account, the model has an impressive 91% accuracy. 
+
+Next I look at policy. The ANES asks policy opinions on a variety of issues, 
+such as opinions on building the wall, the 2010 health care law, global warming,
+etc. I am interested in how well policy preferences predict vote choices. 
+
+```{r}
+
+#Policy 
+#######
+
+#Identifying the relevant variables for the model
+policy_variables <- c("have_health_insurance", "favor_2010_health_care_law", 
+                        "party_better_economy", "importance_of_guns", "policy_immigrants", 
+                        "build_wall", "speak_english", "syrian_refugees", "gov_waste_.tax_money", 
+                        "global_warming", "death_penalty")
+
+#Subsetting the data by relevant variables and removing NA's
+anes_2party_policy <- subset(anes_2party, select = c(DV, policy_variables, "assignment"))
+anes_2party_policy <- na.omit(anes_2party_policy)
+
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_policy_train <- filter(anes_2party_policy, assignment == "training")
+anes_2party_policy_train <- subset(anes_2party_policy_train, select = c(DV, policy_variables))
+
+anes_2party_policy_test <- filter(anes_2party_policy, assignment == "test")
+anes_2party_policy_test <- subset(anes_2party_policy_test, select = c(DV, policy_variables))
+
+#Estimating a model on the training set  
+logit_policy <- glm(vote_choice_president ~ ., 
+                      data = anes_2party_policy_train,
+                      family = "binomial")
+
+predictions_policy <- round(predict.glm(logit_policy, newdata = anes_2party_policy_test, type = "response"))
+predictions_policy[predictions_policy == 0] <- "Clinton"
+predictions_policy[predictions_policy == 1] <- "Trump"
+
+table(predictions_policy, anes_2party_policy_test$vote_choice_president)
+
+```
+
+The policy model is almost identical with a 91% accuracy. This shows that 
+feelings are just as predictive of vote choice as policy preferences.
+
+Finally I estimate a model with demographics. I do not expect this model to be 
+as accurate, but I am interested in how well it predicts vote choice. 
+
+```{r}
+
+#Demographics
+
+demographic_variables <- c("religion_important", "age", "married", "education", "hispanic", "white")
+
+anes_2party_demo <- subset(anes_2party, select = c(DV, demographic_variables))
+anes_2party_demo <- na.omit(anes_2party_demo)
+
+logit_demographics <- glm(vote_choice_president ~.,
+                          data = anes_2party_demo,
+                          family = "binomial")
+
+predictions_demographics <- round(logit_demographics$fitted.values)
+predictions_demographics[predictions_demographics == 0] <- "Clinton"
+predictions_demographics[predictions_demographics == 1] <- "Trump"
+
+table(predictions_demographics, anes_2party_demo$vote_choice_president)
+
+```
+
+The trained model had a 72% accuracy. While not as accurate as the policy or 
+feeling models, someone's vote choice can be estimated with 72% accuracy just
+by knowing their age, maritial status, race/ethnicity, education level, and 
+views on religion. 
+
+Finally I am interested in predicting vote choice as accurately as possible. 
+Normally I would include partisanship and ideology in this model, but the ANES
+set is missing a lot of data from these variables. The next model is simply a 
+logistic regression with feelings, policy preferences, and demographics all 
+entered. 
+
+```{r}
+#Full Model
+
+sapply(anes_2party, function(x){mean(is.na(x))})
+
+anes_2party_full <- subset(anes_2party, select = c(DV, policy_variables, feeling_variables, demographic_variables))
+anes_2party_full <- na.omit(anes_2party_full)
+
+logit_full <- glm(vote_choice_president ~.,
+                  data = anes_2party_full,
+                  family = "binomial")
+
+predictions_full <- round(logit_full$fitted.values)
+
+predictions_full[predictions_full == 0] <- "Clinton"
+predictions_full[predictions_full == 1] <- "Trump"
+
+table(anes_2party_full$vote_choice_president, predictions_full)
+```
+
+The final model had an impressive 95% accuracy, so there was a slight improvement
+on the full model over just the policy and just feelings. My largest take-away
+from this data is how much predictive power that feelings had. Their were only 
+2 feeling variables that I used and they had a 91% accuracy. Adding in policy 
+preferences (11 variables) and demographics (6 variables) only improved the 
+accuracy by 4%. 
