@@ -1,0 +1,323 @@
+rm(list = ls())
+
+setwd("C:/Users/cayde/OneDrive/Data Science/R Projects/Housing Prices")
+
+data <- read.csv("housing.csv")
+
+library(dplyr)
+library(ggplot2)
+
+library(reshape2) #cormelt
+library(Hmisc) #Hist.data.frame
+library(car) #VIF
+library(randomForest)
+
+
+
+####################
+# LINEAR REGRESSION
+####################
+
+#Data Cleaning and Transformation
+#################################
+
+
+sapply(data, function(x){sum(is.na(x))}) # checking for NA's
+ #Only one variable had NA's, and these account for less than 1% of the data
+
+names(data)
+
+missing_data <- data[is.na(data$total_bedrooms),]
+
+# Although highly unlikely I want to see if the missing data differs systematically
+# from the complete data. Is there any reason why certain houses may have missing
+# data in the data set?
+
+# Since most of the data is continuous, I use a t.test to compare the means 
+
+numeric_vars <- names(data[sapply(data, is.numeric)]) #getting a list of the numeric variables
+numeric_vars <- numeric_vars[!numeric_vars %in% "total_bedrooms"] # excluding the variable with missing data
+
+# running a t-test for every variable
+for(variable in numeric_vars){
+  test <- t.test(data[,variable], missing_data[,variable])
+  print(test)
+}
+
+# None of the p values reach statistical significance. This indicates that there
+# are likely no systematic differences for the observations that are missing 
+# bedroom data 
+
+data <- na.omit(data) # I remove the small amount of NAs in order to have a perfectly clean data set
+
+for(variable in numeric_vars){
+  print(variable)
+  print(summary(data[,variable]))
+}
+
+# Taking a look at the data everything seems in order. The max median income and 
+# house value suggest that their may be an artificial cap in the data. 
+
+# Testing for Normality 
+hist.data.frame(data)
+
+# Some of the data do not look normally distributed
+# Let's take a closer look
+
+# hist.data.frame(select(data, c("total_rooms", "total_bedrooms", "population", "households")))
+hist(data$total_rooms)
+hist(data$total_bedrooms)
+hist(data$population)
+hist(data$households)
+
+# These variables appear to be exponentially distributed
+# Let's log transform them to see if we get a distribution that looks more normal
+
+data$total_rooms <- log(data$total_rooms)
+data$total_bedrooms <- log(data$total_bedrooms)
+data$population <- log(data$population)
+data$households <- log(data$households)
+
+#hist.data.frame(select(data, c("total_rooms", "total_bedrooms", "population", "households")))
+hist(data$total_rooms)
+hist(data$total_bedrooms)
+hist(data$population)
+hist(data$households)
+
+# These look much better! Although the data has long tails
+
+# There are only 5 houses on islands, so that variable is dropped
+table(data$ocean_proximity)
+data <- data[data$ocean_proximity != "ISLAND",]
+
+# Converting the geographic variable into a factor
+class(data$ocean_proximity)
+data$ocean_proximity <- as.factor(data$ocean_proximity)
+
+
+#SPLITTING THE DATA
+######################
+
+# Now that the data is cleaned in transformed we can split the data
+
+set.seed(38483)
+
+assignment <- sample(c("train", "test"), nrow(data), replace = TRUE, prob = c(.8, .2))
+
+train <- data[assignment == "train",]
+test <- data[assignment == "test",]
+
+rm(assignment)
+
+#TRAINING THE MODEL
+###################
+
+
+# Linear Models
+
+lin_mod_full <- lm(median_house_value ~ ., train)
+summary(lin_mod_full)
+
+# Running Linear models requires certain assumptions about the data. I have already
+# dealt with the distribution of the data, and I have no reason to believe the 
+# observations are not independent of each other. However, now that I have estimated
+# the model I need to check for multicolinearity, homoskedasticity, and normality 
+# of errors
+
+# Multicolinearity 
+##################
+
+# The total number of rooms is negatively correlated with the price which seems
+# backwards. There is also a variable named total number of bedrooms, which is 
+# not only positively correlated, but sounds very similar to total number of 
+# rooms. These two variables are likely highly colinear
+
+cormat <- round(cor(data[,sapply(data, is.numeric)]), 2)
+cormat
+
+# The total_rooms, total_bedrooms, and household vars are very correlated
+# The variance inflaction factor score is above 6 for total bedrooms and near 5
+# for total rooms, whereas the typical cut-off point is 5
+
+vif(lin_mod_full)
+
+# I remove total_rooms as I believe total_bedrooms conveys more information about the house
+# Re-estimating the model 
+lin_mod_rooms<- lm(median_house_value ~ housing_median_age + total_rooms + 
+                     population + median_income + ocean_proximity, train)
+
+summary(lin_mod_rooms)
+vif(lin_mod_rooms)
+
+# The new model has significantly less multicollineartiy 
+# If I was interested in the impact of the particular variables of the model I would
+# likely go with the reduced model as the coefficients are more stable, however
+# I am more interested in predictive power, and this new model has less predictive
+# power
+
+
+# Normality of Errors 
+#####################
+
+qqnorm(scale(lin_mod_rooms$residuals))
+qqline(scale(lin_mod_rooms$residuals))
+
+# The QQ plot shows compares the distribution of the residuals to a normal 
+# distribution. Here we can see that although many of the residuals fall on a 
+# straight line, as the residuals get larger their values become more extreme 
+# compared to a normal distribution. The errors are not normally distributed, and
+# in this case the model is significantly overpredict for a large quantity of data
+
+plot(lin_mod_rooms$fitted.values, lin_mod_rooms$residuals)
+
+# Plotting the residuals and fitted values against each other we can see that 
+# there does appear to be a relationship between the variables, thus violating
+# the assumption of Homoskedasticity.  There is also a very strong diagonal line 
+# on the plot. Let's check the data for peculiarities. 
+
+# There are 777 houses at maximum price "500001", this suggests a 'ceiling' in 
+# our data and creates artificiality
+sum(train$median_house_value == max(train$median_house_value))
+
+# Let's remove those values
+train <- train[train$median_house_value != max(train$median_house_value),]
+
+lin_mod_rooms<- lm(median_house_value ~ housing_median_age + total_rooms + 
+                     population + median_income + ocean_proximity, train)
+
+# Removing the values get's rid of the strong diagonal line but the errors are 
+# still not normally distributed
+plot(lin_mod_rooms$fitted.values, lin_mod_rooms$residuals)
+
+qqnorm(scale(lin_mod_rooms$residuals))
+qqline(scale(lin_mod_rooms$residuals))
+
+# Although there appears to be a negative correlation between the residuals
+# this relationship is not statistically significant
+cor.test(lin_mod_rooms$fitted.values, lin_mod_rooms$residuals)
+
+# Predictive Power of the Model
+################################
+
+# Despite it's limitations the linear model does predict 63% of the variance on 
+# the test data. However, some of the assumptions of linear regression do not hold, 
+# particularly normality of errors
+
+pred_test <- predict(lin_mod_rooms, test)
+
+rss <- sum((test$median_house_value - pred_test)^2)
+tss <- sum((test$median_house_value - mean(test$median_house_value))^2)
+
+r_squared <- 1 - (rss/tss)
+r_squared
+
+################
+# RANDOM FOREST
+###############
+
+# Random forest models make less assumptions about the structure of the data
+# While there is a risk of overfitting, the data is sufficiently large to split
+# into training and testing sets.
+# Random forests are not as easy to interpret as a linear regression models,
+# in which the coefficients are a straight-forward linear interpretation
+# However, if the goal is prediction, the Random Forest Model is often quite good
+
+rf_model <- randomForest(median_house_value ~ ., data = train)
+print(rf_model)
+
+rf_test <- predict(rf_model, newdata = test)
+
+rss_rf <- sum((test$median_house_value - rf_test)^2)
+tss_rf <- sum((test$median_house_value - mean(test$median_house_value))^2)
+
+r_squared_rf <- 1 -(rss_rf/tss_rf)
+r_squared_rf
+
+# The predictive power of random forest model is significantly greater than the
+# linear model explaining about 80% of the data, nearly 20% more the the linear
+# model
+
+# Adjusting the number of features the model selects from it makes little difference, 
+# all models are predicting about 80% of the variance 
+
+for(features in 2:7){
+  assign(paste0("rf_test_", features), randomForest(median_house_value ~ ., data = train, mtry = features))
+}
+
+print(rf_test_2)
+print(rf_test_3)
+print(rf_test_4)
+print(rf_test_5)
+print(rf_test_6)
+print(rf_test_7)
+
+# transforming longitude lattitude
+
+wcss <- c()
+
+for (i in 1:10) {
+  kmeans_obj <- kmeans(data[,c("longitude", "latitude")], centers = i)
+  wcss[i] <- kmeans_obj$tot.withinss
+}
+
+# plot the elbow plot
+plot(1:10, wcss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of clusters", ylab = "WCSS")
+
+# add a vertical line at the "elbow" point
+elbow <- which(diff(wcss) <= mean(diff(wcss))) + 1
+abline(v = elbow, col = "red", lty = 2)
+
+# Although mathematically the biggest drop in Within-Cluster Sum of Squares (WCSS)
+# is at 2 clusters, California
+# is too large and diverse of a state to only have 2 relevant locations for housing
+# prices. I go further along the elbow plot until the drop in WCSS is flat. The
+# graph slowly drops to 8, which seems more reasonable
+
+kmeans_cluster <- kmeans(data[,c("longitude", "latitude")], centers = 8)
+
+data$area <-  as.factor(kmeans_obj$cluster)
+table(data$area)
+
+ggplot(data, aes(x=longitude, y=latitude, color = area)) +
+  geom_point()
+
+# A simple scatter plot of the lattiude and longitude does a surprsingly good job
+# of showing California. The Major cities of San Francisco, Sacramento, Los Angeles,
+# and San Dieog all have distinct colors, with Los Angeles being divided into three
+# colors. 
+
+# Although this K-means cluster was designed to make the latitude and longitude 
+# more meaningful I will still keep these values in the data set. The Random Forest
+# works by selecting the feature that maximizes information gain, if the new clusters
+# do a better job at predicting prices than the latitude and longitude the model 
+# will simply select the area when confronted with a choice. In other words 
+# Random forest models are robust to meaningless data because it can always ignore
+# a feature in favor of a variable that provides more information gain
+
+# Since I have added new data to the data set I need to resplit my data to make
+# sure the new feature shows up in the training and test set. I simply set the 
+# same seed and re-assign
+
+set.seed(38483)
+
+assignment <- sample(c("train", "test"), nrow(data), replace = TRUE, prob = c(.8, .2))
+
+train <- data[assignment == "train",]
+test <- data[assignment == "test",]
+
+rm(assignment)
+
+rf_model <- randomForest(median_house_value ~ ., data = train)
+print(rf_model)
+
+rf_test <- predict(rf_model, newdata = test)
+
+rss_rf <- sum((test$median_house_value - rf_test)^2)
+tss_rf <- sum((test$median_house_value - mean(test$median_house_value))^2)
+
+r_squared_rf <- 1 -(rss_rf/tss_rf)
+r_squared_rf
+
+# Assigning house to areas using their coordinates resulted predicting 82% of 
+# the variance, a 4% increase 
