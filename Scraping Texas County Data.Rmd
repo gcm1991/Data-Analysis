@@ -1,0 +1,140 @@
+---
+title: "Scraping Texas Election Data"
+output: html_notebook
+---
+
+In this project I am interested in scraping data for Texas Elections. Each county
+in Texas hosts elections every two years for various offices such as Commissioner,
+Judge, District Attorney etc. Going to this website: 
+https://imis.county.org/imis/TACMember/Elections/General_Election_Results.aspx
+you can enter the year and the county you are interested and click "Refresh."
+The results will give you a table of the 1) position title 2) all of the eligible
+candidates 3) their respective party 4) voter number and 5) vote percentage. 
+
+For a human to navigate to a county of interest is relatively simple; you simply
+select the year and county from a drop-down list and hit refresh. However, if you
+wanted to automate the process you would need to write code that can select the
+county you want, 'hit' the refresh button, collect the results, and then repeat
+the process for every other county. 
+
+Using rvest package I have written code to accomplish this. I even have code for
+when their is missing data for the counties. 
+
+```{r}
+rm(list = ls())
+
+setwd("C:/Users/cayde/OneDrive/Graduate Studies/Misc/RM/Marshall")
+
+library(tidyverse)
+library(rvest)
+
+```
+
+The first thing to do is set the url and session. This is standard practice with
+Rvest. The url can be set to a string of the URL. You then create a session variable
+by using the html_session function and put the url inside it as one of the arguments.
+Normally this would suffice if you were just interested in scraping data from a 
+static website. However, as explained earlier, we need to choose values and 
+refresh the page. For this we will need to create a form. Here I have created a 
+variable named 'form.' by putting my session variable inside the html_form function.
+
+```{r}
+
+#Also be sure to rename your variables to the year when creating an empty dataframe, putting data in that data frame "new_year[i,column] <- results...."
+## Viewing the data frame "view(new_year)" and saving "write.csv <- (new_year, ..."
+
+url <- "https://imis.county.org/imis/TACMember/Elections/General_Election_Results.aspx"
+session <- html_session(url)
+form <- html_form(session)[[1]]
+
+```
+
+Now that the form is created I can access different elements of the page using the
+form. The syntax is a little complicated, but you can arrive at what I need through
+trial and error. To do this I simply go to the form object in my Global Environment 
+in R. After clicking on it I can manually navigate to see where what I want is
+located.
+
+In this case I need a list of counties to loop through. Using the navigation 
+technique I find that it is located under options, which is in the 30th' row 
+under the fields value. I can access it with the following code:
+
+```{r}
+counties <- names(form$fields[[30]]$options)
+
+```
+
+Now that I have a list of counties a create a dataframe to put my data in. I
+then create a loop that loops through the counties. Inside the loop I use the 
+set_values function. The first argument it takes is the form, which I conveniently
+named form. The remaining arguments are looking to set the fields in the form. 
+This is the equivalent of manually choosing the year and county from a drop-down
+list. But of course here we choose these by code. Using the navigation technique
+I find the name of the field and set it equal to the appropriate value. For 
+whatever reason the value is not the name of the county, but instead each county
+has a number assigned to it that goes in increments of 10. The first county 'Anderson'
+has a value of 10, the second county 'Andrews' has a value of 20, and this 
+continues until the last county Zavala that has a value of 2540. Taking advantage
+of this pattern I simply put loop index and multiply it by 10. The second field
+is simply the year and I set it to the year I want. 
+
+After I have chosen the values I need to do the code equivalent of hitting the 
+refresh button. I do this with the submit_form argument. It takes the argument of
+the session as well as the form that I have just filled out. It's final argument
+is the value of the refresh button which includes "SubmitButton" in it's name. 
+
+After the form is submitted the results appear. Next I record the results
+with the html_table function. The html table does not put the data in a dataframe
+but rather a list. My next step is to put the results in a dataframe, which I do
+in the for(webpage in 1:length....) loop. Before I do I check to see if the county
+is missing from the webpage. Some of the results have missing counties. If this 
+is the case you can put the numeric value of the county in the missing county 
+vector and when it comes time to get the information for the html_table, it will
+simply skip this loop if 
+
+Navigating through the html table with the results I find that all the information is
+in the X1, X2, X3, and X4 variables in the third row. These are indexed using 
+results[[3]][[X1]], results[[3]][[X2]] and so on. I create a vector for X1, X2, 
+X3, and X4 and then loop through these variable names to retrieve the information. 
+In the loop I assign the information to a column. The column assignment is a function 
+of the county and the variable name. For example, X1, X2, X3, and X4 will be assigned 
+to columns 1-4 for the first county. X1, X2, X3, and X4 will be assigned to columns 
+5-8 for the second county and so on. After this is done I print the name of the 
+county, this is primarily so I can see that my loop is running. After this the 
+next county is chosen, a new form is created, and the process is repeated. 
+
+```{r}
+general_2020 <- data.frame()
+
+missing_counties <- c()
+
+for(county in 1:length(counties)){
+  
+  form <- set_values(form, "ctl01$TemplateBody$WebPartManager1$gwpciNewReportDisplayCommon$ciNewReportDisplayCommon$ParamSheet1$Input1$ctl00" = county*10,
+                     "ctl01$TemplateBody$WebPartManager1$gwpciNewReportDisplayCommon$ciNewReportDisplayCommon$ParamSheet1$Input0$ctl00" = 2020)
+  
+  session <- submit_form(session = session, form = form, submit = "ctl01$TemplateBody$WebPartManager1$gwpciNewReportDisplayCommon$ciNewReportDisplayCommon$ParamSheet1$SubmitButton")
+  
+  results <- html_table(session, fill = TRUE)
+  
+  column_webpage <- c("X1", "X2", "X3", "X4")
+  webpage <- 1
+  
+  for(webpage in 1:length(column_webpage)){
+    column <- county*4 - (4 - webpage)
+    general_2020[1:length(results[[3]][[column_webpage[webpage]]]),column] <- results[[3]][[column_webpage[webpage]]]
+  }
+  print(counties[county])
+}
+
+view(general_2020)
+
+write.csv(general_2020, file = "Texas General 2020.csv")
+
+```
+
+The result of this is all of the results from all the counties for a given election
+year. I write the file to a desired location on my computer. 
+
+
+
