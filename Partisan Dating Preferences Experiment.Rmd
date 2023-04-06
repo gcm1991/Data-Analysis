@@ -1,0 +1,249 @@
+---
+title: "Partisan Dating Preferences Experiment"
+output: html_notebook
+---
+
+This project is an experiment I ran in grad school. I was interested in how 
+partisanship impacted dating preferences. In order to study this I set up a 
+survey experiment. In the experiment I had participants view 9 dating profiles.
+The information on the dating profile, including the partisanship, was randomized
+for each participant. The respondent indicated on a scale of 1-7 how much they
+would be interested in dating this individual. I recorded political info for the
+respondent as well. I predcited that individuals who were partisan (Republicans
+or Democrats) would be less interested in profiles with opposing partisanship. However
+I did not think finding a member of the same party would be much of a boost. The
+profiles were randomly assigned to be Republican, Democrat, or blank. The blank
+served as the control in the experiment.
+
+```{r}
+rm(list = ls())
+
+library(dplyr)
+
+setwd("C:/Users/cayde/OneDrive/Data Science/R Projects/Dating Preferences")
+
+dating_data <- read.csv("Dating Preferences Data.csv")
+```
+
+Because I am interested in how the political beliefs of the respondents effects
+their dating preferences I drop all respondents who did not provide their political
+information. 
+
+```{r}
+
+dating_data <- filter(dating_data, !is.na(Ideology) & !is.na(Party.ID)) #removing non response for party and ideology
+dating_data <- dating_data[,-c(1:10)] #removing metadata
+```
+
+Here I get descriptive statistics of data I am interested in. Given that the profiles
+had individuals of a certain age I restricted my survey to 18-25 year olds.
+Party ID and Ideology are on a scale of 1-7 with 1 being Democrat and liberal and
+7 being Republican and conservative. The mean is 4. Because the mean of my sample
+for Party ID and ideology is below 4 I know that my sample skews liberal. This
+is expected as the sample was taken from Mturk, which is known to be younger, 
+more educated, and typically more liberal. The feeling thermometers of 63 vs. 44
+confirm that individuals in my sample feel more warmly to Democrats than Republicans.
+
+```{r}
+
+#getting descriptive means
+colMeans(dating_data[,names(dating_data) %in% c("Age", "Ideology", "Sex", "Party.ID", "Republican.Therm", "Democrat.Therm")])
+
+```
+
+In the data each profile has it's own variable name. I have 9 profiles of men
+and 9 profiles of women. Each profile has an assigned partisanship. The profiles
+are have names X1 through X9. F stands for female and M stands for Male. R stands
+for Republican, D stands for Democrat, and C stands for control. The variable
+X1FD_1 would indicate that the first female profile was assigned democrat. X6MC_1
+indicates that the 6th male profile was assigned control. This naming scheme
+allows me to know exactly which profiles each respondent saw.
+
+In the code below I create an average rating for the profiles by their partisanship. 
+
+```{r}
+
+#Creating variables that are averages of respondents rating for Democrat, Republican and Control
+
+dating_data$democrat_avg <- rowMeans(subset(dating_data, select = c(X1FD_1,X2FD_1,X3FD_1,X4FD_1,X5FD_1,X6FD_1,X7FD_1,X8FD_1,X9FD_1,X1MD_1,X2MD_1,X3MD_1,X4MD_1,X5MD_1,X6MD_1,X7MD_1,X8MD_1,X9MD_1)), na.rm = TRUE)
+
+dating_data$republican_avg <- rowMeans(subset(dating_data, select = c(X1FR_1,X2FR_1,X3FR_1,X4FR_1,X5FR_1,X6FR_1,X7FR_1,X8FR_1,X9FR_1,X1MR_1,X2MR_1,X3MR_1,X4MR_1,X5MR_1,X6MR_1,X7MR_1,X8MR_1,X9MR_1)), na.rm = TRUE)
+
+dating_data$control_avg <- rowMeans(subset(dating_data, select = c(X1FC_1,X2FC_1,X3FC_1,X4FC_1,X5FC_1,X6FC_1,X7FC_1,X8FC_1,X9FC_1,X1MC_1,X2MC_1,X3MC_1,X4MC_1,X5MC_1,X6MC_1,X7MC_1,X8MC_1,X9MC_1)), na.rm = TRUE)
+
+```
+
+I would like to remove the profiles after I have aggregated the data so that I
+will have a clean data set. The profiles all begin with X. Here I rename some
+variables that have an X in them so I can easily identify the profile vars with 
+the letter X.
+
+```{r}
+
+# All profile variables start with "X"
+# Renaming other variables that have an "X" in them to isolate the profiles
+dating_data <- rename(dating_data, "Orientation" = "Sexual.Orientation")
+dating_data <- rename(dating_data, "Gender" = "Sex")
+
+```
+
+Before I remove the profiles I want to aggregate them again. But rather than 
+having a continuous measure I would like to convert it to a binary one (interested
+vs. not interested). Many dating apps have a simple binary feature (left swipe vs.
+right swipe). This just gives me another way of reporting the data. 
+
+```{r}
+
+profile_vars <- names(select(dating_data, contains("X")))
+
+# Converting Likert scale to binary variable
+
+for(column in profile_vars){
+  dating_data[,column] <- recode(dating_data[,column], `7` = 1,
+                               `6` = 1,
+                               `5` = 1,
+                               `4` = 1,
+                               `3` = 0,
+                               `2` = 0,
+                               `1` = 0)
+}
+
+#Creating variables that are averages of respondents rating for Democrat, Republican and Control
+
+dating_data$democrat_interest <- rowMeans(subset(dating_data, select = c(X1FD_1,X2FD_1,X3FD_1,X4FD_1,X5FD_1,X6FD_1,X7FD_1,X8FD_1,X9FD_1,X1MD_1,X2MD_1,X3MD_1,X4MD_1,X5MD_1,X6MD_1,X7MD_1,X8MD_1,X9MD_1)), na.rm = TRUE)
+dating_data$republican_interest <- rowMeans(subset(dating_data, select = c(X1FR_1,X2FR_1,X3FR_1,X4FR_1,X5FR_1,X6FR_1,X7FR_1,X8FR_1,X9FR_1,X1MR_1,X2MR_1,X3MR_1,X4MR_1,X5MR_1,X6MR_1,X7MR_1,X8MR_1,X9MR_1)), na.rm = TRUE)
+dating_data$control_interest <- rowMeans(subset(dating_data, select = c(X1FC_1,X2FC_1,X3FC_1,X4FC_1,X5FC_1,X6FC_1,X7FC_1,X8FC_1,X9FC_1,X1MC_1,X2MC_1,X3MC_1,X4MC_1,X5MC_1,X6MC_1,X7MC_1,X8MC_1,X9MC_1)), na.rm = TRUE)
+
+```
+
+After recoding the profiles and aggregating them to a variable called 'interest'
+I now remove all the profiles as well as any observations with missing data.
+
+```{r}
+
+# Removing individual profiles
+
+dating_data <- select(dating_data, !contains("X"))
+
+dating_data <- na.omit(dating_data)
+```
+
+I also need to convert the 7 pt Party ID to 
+the typical Republican, Democrat, and Independent. This makes the results of the
+experiment more easy to report. 
+
+```{r}
+#converting 7 point PID to party
+
+dating_data$Party <- NA
+dating_data$Party[dating_data$Party.ID < 4] <- "Democrat"
+dating_data$Party[dating_data$Party.ID == 4] <- "Independent"
+dating_data$Party[dating_data$Party.ID > 4] <- "Republican"
+
+```
+
+The final transformation I need to make to the data is to convert it into 'long'
+format. Currently it is in a wide format. Each respondent has an average rating
+for Democrat profiles, Republican profiles, and control profiles. These represent
+3 different columns. In order to do an ANOVA, I need to put the data into long format.
+One column will indicate the partisanship of the profile and another column will
+have the average rating. There will be three rows per respondent. In this manner
+I can treat the rating of the profile as a dependent variable and the partisanship
+of the profile as an independent variable. 
+
+
+
+```{r}
+
+# AOV
+
+# Converting data to 'long' format
+dating_data_long <- gather(dating_data, key = "partisanship_of_profile", value = "average_rating", democrat_avg:control_avg)
+
+```
+
+Before doing the analysis let's visualize the data
+
+```{r}
+ggplot(dating_data_long, aes(y=average_rating, x=Party, fill = partisanship_of_profile)) +
+  geom_boxplot() +
+  labs(y="Rating") +
+  scale_fill_manual(name = "Partisanship of Profile", 
+                    labels = c("Control", "Democrat", "Republican"),
+                    values = c("gray", "blue", "red"))
+
+```
+
+It appears as though Democrats are significantly less interested in dating 
+Republicans and vice versa. Independents on the other hand do no have a preference.
+Interestingly the differences between the control and the in-party profiles show
+little difference for both Democrats and Republicans. Let's perform statistical 
+analysis to see if these effects are significant. 
+
+Now I move on to the ANOVA. I could simply put partisanship as a control variable,
+but I am interested in seeing the differences between Republicans and Democrats.
+Perhaps one party is more concerned with whom they data than the other party. 
+I run an ANOVA regressing the rating on partisanship of the profile. Remember their
+are three types of profiles (Democrats, Republicans, and control), thus I need an
+ANOVA rather than the t-test.
+
+Looking at the Democratic respondents we can see that the partisanship of the profile
+was a significant predictor of their rating. Performing Tukey HSD tests we see
+where the differences lie. As predicted Republican profiles were viewed much less
+favorably compare to control and Democratic profiles. However, Democrats did not
+prefer Democrat profiles compared to control profiles. 
+
+```{r}
+
+dem_pref <- aov(lm(average_rating ~ partisanship_of_profile, data = dating_data_long[dating_data_long$Party == "Democrat",]))
+summary(dem_pref)
+TukeyHSD(dem_pref)
+
+```
+
+I do not have any expect and strong effects for independents. While it is possible
+that independents dislike both Republican and Democratic profiles this would make
+dating very difficult for them. Indeed, I find no significant effects for partisanship
+and the TukeyHSD tests show that there are no large differences between the groups.
+
+```{r}
+
+ind_pref <- aov(lm(average_rating ~ partisanship_of_profile, data = dating_data_long[dating_data_long$Party == "Independent",]))
+summary(ind_pref)
+TukeyHSD(ind_pref)
+
+```
+
+Finally I look at Republicans. The partisanship of the profile did have a significant
+effect. Looking at the TukeyHSD tests we see a similar story to the Democrats:
+Republicans don't particularly like Republican profiles more than control profiles,
+however Republicans like Democrat profiles significantly less than both Republican
+and Democrat profiles. The p-value of the Republican and Democrat profile is above
+the conventional 5% but just barely. Considering that I only had 21 republicans
+I am confident that this is due to small sample size. Interestingly the Republicans
+actually liked the control profile more than the Repbulican profile. This difference,
+however, is extremely small an nowhere near statisticaly significant. This observation
+is also consistent with my expectation that being of the same party does not necessarily
+make a profile more attractive. Instead, profiles of the opposing party are 
+liked significantly less. 
+
+```{r}
+
+rep_pref <- aov(lm(average_rating ~ partisanship_of_profile, data = dating_data_long[dating_data_long$Party == "Republican",]))
+summary(rep_pref)
+TukeyHSD(rep_pref)
+
+```
+
+In summation this data shows that partisans are much less willing to data members
+of the opposite party, but that they do no necessarily prefer members of their 
+own party. This is significant because it aligns with what Political Scientists
+calle "Negative Partisanship", the idea that dislike of the opposing party is more
+consequential than like for ones own. The experimetal nature of this research 
+ensures that it was in fact the partisanship that was influencing dating preferences.
+Some scholars have suggested that couples are politically similar due to convergence 
+(they adopt each others political beliefs over time), homophily (one's dating pool
+is usually demographically similar to oneself) and correlation (individuals are
+selecting on other factors such as race or religion, which are simply correlated
+with politics). My study shows that selection may be playing a role. That is 
+individuals specificially avoid dating someone with opposing political beliefs. 
