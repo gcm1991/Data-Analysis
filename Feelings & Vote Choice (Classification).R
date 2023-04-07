@@ -4,6 +4,7 @@ setwd("C:/Users/cayde/OneDrive/Graduate Studies/Misc/TA/Lab 102/Data Sets")
 library(ggplot2)
 library(dplyr)
 library(e1071)
+library(randomForest)
 
 anes <- read.csv("anes_timeseries_2016.csv") 
 
@@ -91,15 +92,18 @@ policy_variables <- c("have_health_insurance", "favor_2010_health_care_law",
                         "global_warming", "death_penalty")
 
 #Subsetting the data by relevant variables and removing NA's
-anes_2party_policy <- subset(anes_2party, select = c(DV, policy_variables, "assignment"))
-anes_2party_policy <- na.omit(anes_2party_policy)
+anes_2party_policy <- anes_2party %>%
+  subset(select = c(DV, policy_variables, "assignment")) %>%
+  na.omit()
 
 #Splitting the new data into testing and training sets based on previous assignment  
-anes_2party_policy_train <- filter(anes_2party_policy, assignment == "training")
-anes_2party_policy_train <- subset(anes_2party_policy_train, select = c(DV, policy_variables))
+anes_2party_policy_train <- anes_2party_policy %>%
+  filter(assignment == "training") %>%
+  subset(select = c(DV, policy_variables))
 
-anes_2party_policy_test <- filter(anes_2party_policy, assignment == "test")
-anes_2party_policy_test <- subset(anes_2party_policy_test, select = c(DV, policy_variables))
+anes_2party_policy_test <- anes_2party_policy %>%
+  filter(assignment == "test") %>%
+  subset(select = c(DV, policy_variables))
 
 #Estimating a model on the training set  
 logit_policy <- glm(vote_choice_president ~ ., 
@@ -116,51 +120,72 @@ table(predictions_policy, anes_2party_policy_test$vote_choice_president)
 
 #Demographics
 
+#Subsetting the data by relevant variables and removing NA's
 demographic_variables <- c("religion_important", "age", "married", "education", "hispanic", "white")
 
-anes_2party_demo <- subset(anes_2party, select = c(DV, demographic_variables))
-anes_2party_demo <- na.omit(anes_2party_demo)
+anes_2party_demo <- anes_2party %>%
+  subset(select = c(DV, demographic_variables, "assignment")) %>%
+  na.omit()
 
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_demo_train <- anes_2party_demo %>%
+  filter(assignment == "training") %>%
+  subset(select = c(DV, demographic_variables))
+
+anes_2party_demo_test <- anes_2party_demo %>%
+  filter(assignment == "test") %>%
+  subset(select = c(DV, demographic_variables))
+
+#Estimating a model on the training set
 logit_demographics <- glm(vote_choice_president ~.,
-                          data = anes_2party_demo,
+                          data = anes_2party_demo_train,
                           family = "binomial")
 
-predictions_demographics <- round(logit_demographics$fitted.values)
+predictions_demographics <- round(predict.glm(logit_demographics, newdata = anes_2party_demo_test, type = "response"))
 predictions_demographics[predictions_demographics == 0] <- "Clinton"
 predictions_demographics[predictions_demographics == 1] <- "Trump"
 
-table(predictions_demographics, anes_2party_demo$vote_choice_president)
+table(predictions_demographics, anes_2party_demo_test$vote_choice_president)
 
 #Full Model
 
 sapply(anes_2party, function(x){mean(is.na(x))})
 
-anes_2party_full <- subset(anes_2party, select = c(DV, policy_variables, feeling_variables, demographic_variables))
-anes_2party_full <- na.omit(anes_2party_full)
+anes_2party_full <- anes_2party %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables, "assignment")) %>%
+  na.omit()
+
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_full_train <- anes_2party_full %>%
+  filter(assignment == "training") %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables))
+
+anes_2party_full_test <- anes_2party_full %>%
+  filter(assignment == "test") %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables))
 
 logit_full <- glm(vote_choice_president ~.,
-                  data = anes_2party_full,
+                  data = anes_2party_full_train,
                   family = "binomial")
 
-predictions_full <- round(logit_full$fitted.values)
-
+predictions_full <- round(predict.glm(logit_full, newdata = anes_2party_full_test, type = "response"))
 predictions_full[predictions_full == 0] <- "Clinton"
 predictions_full[predictions_full == 1] <- "Trump"
 
-table(anes_2party_full$vote_choice_president, predictions_full)
-
+table(anes_2party_full_test$vote_choice_president, predictions_full)
 
 
 #Support Vector Machine 
 ########################
 
 
-classifier <- svm(formula = vote_choice_2012 ~ ., data = training, type = 'C-classification', kernal = 'linear')
+classifier <- svm(formula = vote_choice_president ~ ., data = anes_2party_full_train, type = 'C-classification', kernal = 'linear')
 
-predictions <- predict(classifier, newdata = test[c('feeling_dem_party', 'feeling_rep_party')])
+predictions <- predict(classifier, newdata = anes_2party_full_test)
 
-confustion_matrix <- table(test$vote_choice_2012, predictions)
+confustion_matrix <- table(anes_2party_full_test$vote_choice_president, predictions)
 confustion_matrix
+
 
 #Visualization
 
@@ -168,4 +193,12 @@ plot(classifier, training)
 
 
 plot(classifier, training, svSymbol = "X", dataSymbol = "O")
+
+
+#Random Forest
+###################
+
+rf_model <- randomForest(vote_choice_president ~ ., data = anes_2party_full)
+print(rf_model)
+
 

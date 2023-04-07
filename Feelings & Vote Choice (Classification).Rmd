@@ -17,6 +17,7 @@ setwd("C:/Users/cayde/OneDrive/Graduate Studies/Misc/TA/Lab 102/Data Sets")
 library(ggplot2)
 library(dplyr)
 library(e1071)
+library(randomForest)
 
 anes <- read.csv("anes_timeseries_2016.csv") 
 
@@ -183,26 +184,38 @@ as accurate, but I am interested in how well it predicts vote choice.
 
 #Demographics
 
+#Subsetting the data by relevant variables and removing NA's
 demographic_variables <- c("religion_important", "age", "married", "education", "hispanic", "white")
 
-anes_2party_demo <- subset(anes_2party, select = c(DV, demographic_variables))
-anes_2party_demo <- na.omit(anes_2party_demo)
+anes_2party_demo <- anes_2party %>%
+  subset(select = c(DV, demographic_variables, "assignment")) %>%
+  na.omit()
 
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_demo_train <- anes_2party_demo %>%
+  filter(assignment == "training") %>%
+  subset(select = c(DV, demographic_variables))
+
+anes_2party_demo_test <- anes_2party_demo %>%
+  filter(assignment == "test") %>%
+  subset(select = c(DV, demographic_variables))
+
+#Estimating a model on the training set
 logit_demographics <- glm(vote_choice_president ~.,
-                          data = anes_2party_demo,
+                          data = anes_2party_demo_train,
                           family = "binomial")
 
-predictions_demographics <- round(logit_demographics$fitted.values)
+predictions_demographics <- round(predict.glm(logit_demographics, newdata = anes_2party_demo_test, type = "response"))
 predictions_demographics[predictions_demographics == 0] <- "Clinton"
 predictions_demographics[predictions_demographics == 1] <- "Trump"
 
-table(predictions_demographics, anes_2party_demo$vote_choice_president)
+table(predictions_demographics, anes_2party_demo_test$vote_choice_president)
 
 ```
 
-The trained model had a 72% accuracy. While not as accurate as the policy or 
+The trained model had a 71% accuracy. While not as accurate as the policy or 
 feeling models, someone's vote choice can be estimated with 72% accuracy just
-by knowing their age, maritial status, race/ethnicity, education level, and 
+by knowing their age, marital status, race/ethnicity, education level, and 
 views on religion. 
 
 Finally I am interested in predicting vote choice as accurately as possible. 
@@ -216,24 +229,62 @@ entered.
 
 sapply(anes_2party, function(x){mean(is.na(x))})
 
-anes_2party_full <- subset(anes_2party, select = c(DV, policy_variables, feeling_variables, demographic_variables))
-anes_2party_full <- na.omit(anes_2party_full)
+anes_2party_full <- anes_2party %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables, "assignment")) %>%
+  na.omit()
+
+#Splitting the new data into testing and training sets based on previous assignment  
+anes_2party_full_train <- anes_2party_full %>%
+  filter(assignment == "training") %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables))
+
+anes_2party_full_test <- anes_2party_full %>%
+  filter(assignment == "test") %>%
+  subset(select = c(DV, policy_variables, feeling_variables, demographic_variables))
 
 logit_full <- glm(vote_choice_president ~.,
-                  data = anes_2party_full,
+                  data = anes_2party_full_train,
                   family = "binomial")
 
-predictions_full <- round(logit_full$fitted.values)
-
+predictions_full <- round(predict.glm(logit_full, newdata = anes_2party_full_test, type = "response"))
 predictions_full[predictions_full == 0] <- "Clinton"
 predictions_full[predictions_full == 1] <- "Trump"
 
-table(anes_2party_full$vote_choice_president, predictions_full)
+table(anes_2party_full_test$vote_choice_president, predictions_full)
 ```
 
-The final model had an impressive 95% accuracy, so there was a slight improvement
+The final model had an impressive 93% accuracy, so there was a slight improvement
 on the full model over just the policy and just feelings. My largest take-away
-from this data is how much predictive power that feelings had. Their were only 
+from this data is how much predictive power that feelings had. There were only 
 2 feeling variables that I used and they had a 91% accuracy. Adding in policy 
 preferences (11 variables) and demographics (6 variables) only improved the 
-accuracy by 4%. 
+accuracy by a couple of percentage points. 
+
+
+Given that the vote choice for the parties can be easily separated by a diagonal
+line I decided to try a support vector machine model. 
+
+```{r}
+classifier <- svm(formula = vote_choice_president ~ ., data = anes_2party_full_train, type = 'C-classification', kernal = 'linear')
+
+predictions <- predict(classifier, newdata = anes_2party_full_test)
+
+confustion_matrix <- table(anes_2party_full_test$vote_choice_president, predictions)
+confustion_matrix
+```
+
+The SVM had roughly the same predictive power as the full logistic model. 
+
+Finally I will employ a random forest model. They are easy to implement and I 
+already have a good sense of which variables are doing most of the work from my
+logistic models.
+
+```{r}
+rf_model <- randomForest(vote_choice_president ~ ., data = anes_2party_full)
+print(rf_model)
+
+```
+
+Since the random forest reports prediction accuracy for the out of bag sample I 
+go ahead and use the full data. The error rate is around 6%, putting it on par
+with both the logistic and SVM methods.
